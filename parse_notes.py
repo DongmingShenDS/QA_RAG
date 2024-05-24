@@ -4,9 +4,6 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores.utils import filter_complex_metadata
-from langchain.schema.output_parser import StrOutputParser
-from langchain.schema.runnable import RunnablePassthrough
-from langchain.prompts import PromptTemplate
 from langchain_mistralai.embeddings import MistralAIEmbeddings
 from langchain_mistralai.chat_models import ChatMistralAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -37,20 +34,30 @@ class QA_PDF:
 
     def read_directory(self, directory_path: str):
         """Process all PDF files within the specified directory and load their content into the Chroma vector store."""
-        pdf_files = [f for f in os.listdir(directory_path) if f.endswith('.pdf')]
-        all_docs = []
+        # Check if Chroma DB directory already exists
+        chroma_db_dir = os.path.join(directory_path, "chroma_db")
+        if os.path.exists(chroma_db_dir):
+            print("loading chroma db")
+            # Load vector store from existing Chroma DB
+            self.vector_store = Chroma(embedding_function=self.embeddings, 
+                                       persist_directory=chroma_db_dir)
+        else:
+            print("building new chroma db")
+            pdf_files = [f for f in os.listdir(directory_path) if f.endswith('.pdf')]
+            all_docs = []
 
-        for pdf_file in pdf_files:
-            full_path = os.path.join(directory_path, pdf_file)
-            docs = PyPDFLoader(file_path=full_path).load()
-            all_docs.extend(docs)
+            for pdf_file in pdf_files:
+                full_path = os.path.join(directory_path, pdf_file)
+                docs = PyPDFLoader(file_path=full_path).load()
+                all_docs.extend(docs)
 
-        chunks = self.text_splitter.split_documents(all_docs)
-        chunks = filter_complex_metadata(chunks)
+            chunks = self.text_splitter.split_documents(all_docs)
+            chunks = filter_complex_metadata(chunks)
+            # Initialize Chroma vector store with documents
+            self.vector_store = Chroma.from_documents(documents=chunks,
+                                                      embedding=self.embeddings,
+                                                      persist_directory=chroma_db_dir)
 
-        # Initialize Chroma vector store with documents
-        self.vector_store = Chroma.from_documents(documents=chunks, embedding=self.embeddings,
-                                                  persist_directory="chroma_db")
         self.retriever = self.vector_store.as_retriever(search_type="similarity_score_threshold",
                                                         search_kwargs={"k": 5, "score_threshold": 0.5})
 
